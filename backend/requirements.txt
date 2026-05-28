@@ -1,0 +1,22 @@
+# Core orchestration
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-text-splitters>=0.3.0
+
+# LLM provider (Claude)
+langchain-anthropic>=0.2.0
+
+# Embeddings (real neural embeddings; optional, falls back to offline hash)
+langchain-huggingface>=0.1.0
+sentence-transformers>=2.2.0
+
+# Vector store
+faiss-cpu>=1.7.0
+
+# API
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
