@@ -148,3 +148,9 @@ In-process FAISS won't scale across replicas — that needs a managed vector DB 
 | GET  | `/api/sample-deals` | — | complete + messy sample inputs |
 
 All `deal` fields are optional: `client_name`, `industry`, `project_type`, `objectives[]`, `timeline`, `budget_range`.
+
+
+
+
+
+Loom Link  https://www.loom.com/share/8da2a7877f334e3491daed6d326133d1
