@@ -1,10 +1,9 @@
-"""Retriever: turns a normalized deal into targeted queries and gathers
-de-duplicated, ranked knowledge-base context.
+"""Retriever: converts a normalized deal into queries and gathers context.
 
-Rather than one generic query, we issue several focused queries (one per
-objective plus project-type and compliance-aware queries). This multi-query
-retrieval improves recall on a small knowledge base and mirrors how a solution
-architect would look up several distinct topics for one deal.
+Instead of one broad query we issue several focused ones — one per objective
+plus a couple of structural queries around project type and compliance. This
+multi-query approach improves recall on a small knowledge base and avoids
+drowning the LLM in irrelevant chunks.
 """
 from __future__ import annotations
 
@@ -19,14 +18,7 @@ logger = get_logger(__name__)
 
 
 def _build_queries(deal: NormalizedDeal) -> List[str]:
-    """Build focused retrieval queries from a normalized deal.
-
-    Args:
-        deal: Normalized deal with project type, objectives, and industry.
-
-    Returns:
-        List of query strings for multi-query retrieval.
-    """
+    """Build a list of focused retrieval queries from the deal details."""
     queries = [
         f"Statement of Work structure and sections for a {deal.project_type} project",
         f"{deal.project_type} best practices delivery framework",
@@ -43,25 +35,16 @@ def _build_queries(deal: NormalizedDeal) -> List[str]:
 
 
 class KnowledgeRetriever:
-    """Multi-query retriever that ranks and de-duplicates knowledge-base chunks."""
+    """Multi-query retriever that de-duplicates and ranks knowledge-base chunks."""
 
     def __init__(self, store: VectorStore):
-        """Attach a built vector store for similarity search.
-
-        Args:
-            store: Initialized ``VectorStore`` with a loaded FAISS index.
-        """
         self.store = store
 
     def retrieve(self, deal: NormalizedDeal, top_k: int | None = None) -> List[RetrievedSource]:
-        """Retrieve ranked, de-duplicated context for SOW generation.
+        """Retrieve the most relevant context chunks for the given deal.
 
-        Args:
-            deal: Normalized deal used to construct retrieval queries.
-            top_k: Per-query result count; defaults to ``config.RETRIEVAL_TOP_K``.
-
-        Returns:
-            Up to ``2 * top_k`` ``RetrievedSource`` items sorted by score.
+        Runs multiple queries, deduplicates by content prefix, and returns
+        up to 2 * top_k results sorted by similarity score.
         """
         top_k = top_k or config.RETRIEVAL_TOP_K
         queries = _build_queries(deal)
@@ -71,17 +54,17 @@ class KnowledgeRetriever:
             for doc, score in self.store.search(query, k=top_k):
                 key = doc.page_content[:80]
                 if key in seen:
-                    # keep the best score we have seen for this chunk
+                    # keep the best score we've seen for this chunk
                     if score > seen[key].score:
                         seen[key].score = round(float(score), 4)
                     continue
                 seen[key] = RetrievedSource(
-                    source=f"{doc.metadata.get('source','?')} \u2014 {doc.metadata.get('section','')}",
+                    source=f"{doc.metadata.get('source','?')} — {doc.metadata.get('section','')}",
                     score=round(float(score), 4),
                     snippet=doc.page_content,
                 )
         ranked = sorted(seen.values(), key=lambda s: s.score, reverse=True)
-        # Cap total context so LLM prompts stay within token limits.
+        # cap total context so LLM prompts stay within token limits
         result = ranked[: top_k * 2]
         logger.info("retriever: returning %d unique chunks", len(result))
         return result
