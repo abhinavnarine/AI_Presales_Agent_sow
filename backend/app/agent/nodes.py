@@ -1,11 +1,13 @@
-"""The four workflow nodes. Each node is a pure-ish function of state -> partial
-state, with external dependencies (retriever, llm) injected by the graph builder.
+"""Workflow nodes for the presales pipeline.
 
-Separation of responsibilities:
-  parse_input     -> clean messy input, infer defaults  (no LLM, no retrieval)
-  retrieve        -> RAG: fetch grounding context        (no LLM)
-  generate_sow    -> LLM: produce structured SOW         (uses context if present)
-  validate_refine -> deterministic QA on the output      (no LLM)
+Each node is basically (state) -> partial state. External dependencies
+(retriever, llm) get injected by the graph builder so the nodes themselves
+stay easy to unit-test.
+
+  parse_input     - clean up whatever the user sent, fill in obvious gaps
+  retrieve        - pull grounding context from the knowledge base (RAG)
+  generate_sow    - call the LLM and get a structured SOW back
+  validate_refine - sanity-check the output before we return it
 """
 from __future__ import annotations
 
@@ -41,19 +43,8 @@ DEFAULT_OBJECTIVES = {
 }
 
 
-# --------------------------------------------------------------------------
-# Node 1: parse + normalize
-# --------------------------------------------------------------------------
 def parse_input(state: AgentState) -> AgentState:
-    """Normalize messy deal input and infer missing fields when needed.
-
-    Args:
-        state: Workflow state containing ``raw_deal``.
-
-    Returns:
-        Partial state with a ``normalized`` ``NormalizedDeal`` and any
-        inference warnings recorded on that model.
-    """
+    """Normalize the raw deal and fill in anything that's missing."""
     deal: DealInput = state["raw_deal"]
     logger.debug("parse_input: client=%s", deal.client_name)
     inferred: List[str] = []
@@ -122,14 +113,7 @@ def parse_input(state: AgentState) -> AgentState:
 
 
 def _infer_timeline(project_type: str) -> str:
-    """Infer a default timeline label from the project type.
-
-    Args:
-        project_type: Normalized project type string.
-
-    Returns:
-        A human-readable timeline string marked as inferred.
-    """
+    """Pick a sensible default timeline based on what kind of project this is."""
     pt = project_type.lower()
     if "assessment" in pt:
         return "6-8 weeks (inferred)"
@@ -139,14 +123,7 @@ def _infer_timeline(project_type: str) -> str:
 
 
 def _infer_budget(num_objectives: int) -> str:
-    """Infer a budget band from the number of stated objectives.
-
-    Args:
-        num_objectives: Count of objectives on the normalized deal.
-
-    Returns:
-        A budget range string marked as inferred.
-    """
+    """Rough budget band based on how many objectives were listed."""
     if num_objectives <= 1:
         return "$100k-$250k (inferred)"
     if num_objectives <= 3:
@@ -158,15 +135,7 @@ def _infer_budget(num_objectives: int) -> str:
 # Node 2: retrieve (RAG)
 # --------------------------------------------------------------------------
 def make_retrieve_node(retriever: KnowledgeRetriever):
-    """Create a LangGraph node that retrieves RAG context for the deal.
-
-    Args:
-        retriever: Knowledge retriever backed by the vector store.
-
-    Returns:
-        A node callable ``(state) -> partial state`` with ``sources`` and
-        ``context_text`` keys (empty when ``use_rag`` is False).
-    """
+    """Return a graph node that fetches knowledge-base context for the deal."""
 
     def retrieve(state: AgentState) -> AgentState:
         if not state.get("use_rag", True):
@@ -195,14 +164,7 @@ SYSTEM_PROMPT = (
 
 
 def make_generate_node(llm: LLMClient):
-    """Create a LangGraph node that calls the LLM to produce a structured SOW.
-
-    Args:
-        llm: LLM client used for completion (Anthropic or mock).
-
-    Returns:
-        A node callable ``(state) -> partial state`` with a ``sow`` key.
-    """
+    """Return a graph node that calls the LLM and returns a structured SOW."""
 
     def generate_sow(state: AgentState) -> AgentState:
         normalized: NormalizedDeal = state["normalized"]
@@ -242,15 +204,10 @@ def make_generate_node(llm: LLMClient):
 
 
 def _parse_sow(raw: str) -> SOW:
-    """Parse LLM output into a structured ``SOW`` model.
+    """Parse the LLM response into a SOW model.
 
-    Strips optional markdown fences and extracts JSON from noisy responses.
-
-    Args:
-        raw: Raw string returned by the LLM (expected JSON object).
-
-    Returns:
-        Parsed ``SOW``; missing fields default to empty strings.
+    The LLM sometimes wraps JSON in markdown fences even when told not to,
+    so we strip those before parsing.
     """
     text = raw.strip()
     text = re.sub(r"^```(?:json)?", "", text).strip()
@@ -258,6 +215,7 @@ def _parse_sow(raw: str) -> SOW:
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
+        # try to salvage a JSON object from a noisy response
         m = re.search(r"\{.*\}", text, re.DOTALL)
         data = json.loads(m.group(0)) if m else {}
     return SOW(
@@ -273,15 +231,7 @@ def _parse_sow(raw: str) -> SOW:
 # Node 4: validate / refine
 # --------------------------------------------------------------------------
 def validate_refine(state: AgentState) -> AgentState:
-    """Run deterministic QA checks on the generated SOW.
-
-    Args:
-        state: Workflow state with ``sow``, ``normalized``, and ``use_rag``.
-
-    Returns:
-        Partial state with ``validation_notes`` listing thin sections,
-        inferred-field warnings, and RAG-off notices.
-    """
+    """Quick sanity check on the generated SOW before we ship it back."""
     sow: SOW = state["sow"]
     notes: List[str] = []
     for field in ("project_overview", "scope_of_work", "deliverables", "timeline", "assumptions"):
