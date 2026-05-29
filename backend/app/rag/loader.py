@@ -21,11 +21,28 @@ logger = get_logger(__name__)
 
 
 def _nearest_heading(text: str, upto: int) -> str:
+    """Find the last markdown heading before a character offset.
+
+    Args:
+        text: Full markdown file contents.
+        upto: Character index bounding the search window.
+
+    Returns:
+        Heading text without leading ``#`` markers, or empty string.
+    """
     headings = [m for m in re.finditer(r"^#{1,6}\s+(.*)$", text[:upto], re.MULTILINE)]
     return headings[-1].group(1).strip() if headings else ""
 
 
 def load_and_chunk() -> List[Document]:
+    """Load all markdown files from the knowledge base and split into chunks.
+
+    Returns:
+        LangChain ``Document`` list with ``source`` and ``section`` metadata.
+
+    Raises:
+        FileNotFoundError: If the knowledge base directory has no ``*.md`` files.
+    """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP,

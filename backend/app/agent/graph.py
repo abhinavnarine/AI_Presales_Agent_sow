@@ -30,7 +30,10 @@ logger = get_logger(__name__)
 
 
 class PresalesAgent:
+    """LangGraph-based presales agent that generates Statements of Work."""
+
     def __init__(self) -> None:
+        """Initialize RAG components, LLM client, and compile the workflow graph."""
         logger.info("Initializing presales agent (vector store, retriever, LLM)")
         self.vector_store = VectorStore().build()
         self.retriever = KnowledgeRetriever(self.vector_store)
@@ -44,6 +47,11 @@ class PresalesAgent:
         )
 
     def _build_graph(self):
+        """Wire the four pipeline nodes into a linear LangGraph workflow.
+
+        Returns:
+            A compiled LangGraph runnable invoked via ``.invoke()``.
+        """
         g = StateGraph(AgentState)
         g.add_node("parse_input", parse_input)
         g.add_node("retrieve", make_retrieve_node(self.retriever))
@@ -58,6 +66,15 @@ class PresalesAgent:
         return g.compile()
 
     def run(self, deal: DealInput, use_rag: bool = True) -> GenerateResponse:
+        """Execute the full SOW generation pipeline for a deal.
+
+        Args:
+            deal: Raw deal input from the API or UI.
+            use_rag: When True, retrieve knowledge-base context before generation.
+
+        Returns:
+            Normalized deal, generated SOW, retrieval sources, and metadata.
+        """
         logger.info(
             "Running graph for client=%s project=%s use_rag=%s",
             deal.client_name,
@@ -84,5 +101,11 @@ class PresalesAgent:
 
 @lru_cache(maxsize=1)
 def get_agent() -> PresalesAgent:
-    """Singleton so the vector store and model load only once."""
+    """Return a process-wide singleton ``PresalesAgent`` instance.
+
+    The vector store and embedding models are loaded only on first call.
+
+    Returns:
+        Cached ``PresalesAgent`` ready to serve API requests.
+    """
     return PresalesAgent()

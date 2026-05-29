@@ -16,7 +16,14 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize logging and warm the agent singleton on startup."""
+    """Manage FastAPI startup and shutdown lifecycle hooks.
+
+    Args:
+        app: The FastAPI application instance.
+
+    Yields:
+        Control back to the server after warming the agent singleton.
+    """
     setup_logging()
     logger.info(
         "API ready (llm=%s, embedding=%s)",
@@ -40,6 +47,12 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
+    """Report API health and loaded backend configuration.
+
+    Returns:
+        Dict with ``status``, ``llm_provider``, ``embedding_backend``,
+        and ``kb_chunks`` counts.
+    """
     agent = get_agent()
     return {
         "status": "ok",
@@ -51,7 +64,14 @@ def health() -> dict:
 
 @app.post("/api/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest) -> GenerateResponse:
-    """Generate a single SOW (RAG on or off, controlled by req.use_rag)."""
+    """Generate a single Statement of Work for the given deal.
+
+    Args:
+        req: Request body with ``deal`` and ``use_rag`` flag.
+
+    Returns:
+        Full pipeline response including normalized deal, SOW, and sources.
+    """
     logger.info(
         "POST /api/generate client=%s use_rag=%s",
         req.deal.client_name,
@@ -62,7 +82,14 @@ def generate(req: GenerateRequest) -> GenerateResponse:
 
 @app.post("/api/compare")
 def compare(deal: DealInput) -> dict:
-    """Run the pipeline twice and return WITH-RAG and WITHOUT-RAG side by side."""
+    """Run the pipeline twice: with RAG and without RAG.
+
+    Args:
+        deal: Raw deal input shared by both runs.
+
+    Returns:
+        Dict with ``with_rag`` and ``without_rag`` ``GenerateResponse`` objects.
+    """
     logger.info("POST /api/compare client=%s", deal.client_name)
     agent = get_agent()
     with_rag = agent.run(deal, use_rag=True)
@@ -72,6 +99,11 @@ def compare(deal: DealInput) -> dict:
 
 @app.get("/api/sample-deals")
 def sample_deals() -> dict:
+    """Return example deal payloads for UI demos and testing.
+
+    Returns:
+        Dict with ``complete`` (fully specified) and ``messy`` (sparse) samples.
+    """
     return {
         "complete": {
             "client_name": "Acme Health",

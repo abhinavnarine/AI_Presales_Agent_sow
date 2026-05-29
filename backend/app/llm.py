@@ -28,7 +28,10 @@ SECTION_KEYS = [
 
 
 class LLMClient:
+    """Unified LLM interface supporting Anthropic and offline mock generation."""
+
     def __init__(self) -> None:
+        """Select provider from config and initialize the Anthropic client if needed."""
         self.provider = config.effective_llm_provider()
         logger.info("LLM provider: %s", self.provider)
         self._client = None
@@ -43,6 +46,15 @@ class LLMClient:
             )
 
     def complete(self, system: str, user: str) -> str:
+        """Generate a completion from system and user prompts.
+
+        Args:
+            system: System instructions for the model.
+            user: User message (deal JSON and optional RAG context).
+
+        Returns:
+            Raw model text (JSON string with five SOW section keys).
+        """
         if self.provider == "anthropic":
             logger.debug("LLM complete via Anthropic (%s)", config.ANTHROPIC_MODEL)
             resp = self._client.invoke(
@@ -57,17 +69,32 @@ class LLMClient:
 # Mock generation
 # --------------------------------------------------------------------------
 def _extract_tag(text: str, tag: str) -> str:
+    """Extract the inner text of an XML-style tag from a prompt.
+
+    Args:
+        text: Full prompt or message body.
+        tag: Tag name without angle brackets (e.g. ``"deal"``).
+
+    Returns:
+        Stripped inner content, or empty string if the tag is absent.
+    """
     m = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
     return m.group(1).strip() if m else ""
 
 
 def _mock_complete(user: str) -> str:
-    """Produce a believable structured SOW deterministically.
+    """Produce a believable structured SOW deterministically (offline).
 
-    Crucially, when a <context> block is present (RAG on) the output weaves in
-    concrete phrases drawn from the retrieved knowledge base. When it is absent
-    (RAG off) the output is generic. This makes the WITH/WITHOUT RAG difference
-    visible even without a real LLM."""
+    When a ``<context>`` block is present (RAG on), output weaves in phrases
+    from the knowledge base; when absent, output stays generic.
+
+    Args:
+        user: User prompt containing ``<deal>`` and optional ``<context>`` tags.
+
+    Returns:
+        JSON string with keys: project_overview, scope_of_work, deliverables,
+        timeline, assumptions.
+    """
     deal_raw = _extract_tag(user, "deal")
     context = _extract_tag(user, "context")
     try:
@@ -165,6 +192,15 @@ def _mock_complete(user: str) -> str:
 
 
 def _context_sentence(context: str, needle: str) -> str:
+    """Find the first sentence in context that mentions a keyword.
+
+    Args:
+        context: Retrieved knowledge-base text.
+        needle: Substring to search for (case-insensitive).
+
+    Returns:
+        A short grounded note prefixed with ``"Grounded note: "``, or empty.
+    """
     for sentence in re.split(r"(?<=[.])\s+", context):
         if needle.lower() in sentence.lower():
             s = sentence.strip().replace("\n", " ")

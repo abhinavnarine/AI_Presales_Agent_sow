@@ -43,7 +43,12 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
 
 
 def effective_llm_provider() -> str:
-    """Fall back to mock if anthropic is requested but no key is present."""
+    """Resolve the LLM provider actually used at runtime.
+
+    Returns:
+        ``"mock"`` when Anthropic is configured but ``ANTHROPIC_API_KEY`` is empty;
+        otherwise the configured ``LLM_PROVIDER`` value.
+    """
     if LLM_PROVIDER == "anthropic" and not ANTHROPIC_API_KEY:
         return "mock"
     return LLM_PROVIDER

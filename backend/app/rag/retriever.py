@@ -19,6 +19,14 @@ logger = get_logger(__name__)
 
 
 def _build_queries(deal: NormalizedDeal) -> List[str]:
+    """Build focused retrieval queries from a normalized deal.
+
+    Args:
+        deal: Normalized deal with project type, objectives, and industry.
+
+    Returns:
+        List of query strings for multi-query retrieval.
+    """
     queries = [
         f"Statement of Work structure and sections for a {deal.project_type} project",
         f"{deal.project_type} best practices delivery framework",
@@ -35,10 +43,26 @@ def _build_queries(deal: NormalizedDeal) -> List[str]:
 
 
 class KnowledgeRetriever:
+    """Multi-query retriever that ranks and de-duplicates knowledge-base chunks."""
+
     def __init__(self, store: VectorStore):
+        """Attach a built vector store for similarity search.
+
+        Args:
+            store: Initialized ``VectorStore`` with a loaded FAISS index.
+        """
         self.store = store
 
     def retrieve(self, deal: NormalizedDeal, top_k: int | None = None) -> List[RetrievedSource]:
+        """Retrieve ranked, de-duplicated context for SOW generation.
+
+        Args:
+            deal: Normalized deal used to construct retrieval queries.
+            top_k: Per-query result count; defaults to ``config.RETRIEVAL_TOP_K``.
+
+        Returns:
+            Up to ``2 * top_k`` ``RetrievedSource`` items sorted by score.
+        """
         top_k = top_k or config.RETRIEVAL_TOP_K
         queries = _build_queries(deal)
         logger.debug("retriever: %d queries for %s", len(queries), deal.project_type)

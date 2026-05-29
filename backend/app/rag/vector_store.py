@@ -22,7 +22,10 @@ logger = get_logger(__name__)
 
 
 class VectorStore:
+    """FAISS-backed vector store for the markdown knowledge base."""
+
     def __init__(self) -> None:
+        """Initialize embeddings backend; index is built lazily via ``build()``."""
         self.embeddings: Embeddings
         self.backend: str
         self.embeddings, self.backend = get_embeddings()
@@ -33,6 +36,14 @@ class VectorStore:
         return Path(config.VECTOR_STORE_DIR) / self.backend
 
     def build(self, force: bool = False) -> "VectorStore":
+        """Load a cached index from disk or build and persist a new one.
+
+        Args:
+            force: When True, rebuild even if a cached index exists.
+
+        Returns:
+            Self, with ``_store`` populated and ready for search.
+        """
         persist = self._persist_path
         index_file = persist / "index.faiss"
         if index_file.exists() and not force:
@@ -54,6 +65,15 @@ class VectorStore:
         return self
 
     def search(self, query: str, k: int | None = None) -> List[Tuple[Document, float]]:
+        """Return the top-k most similar chunks for a query.
+
+        Args:
+            query: Natural-language search string.
+            k: Number of results; defaults to ``config.RETRIEVAL_TOP_K``.
+
+        Returns:
+            List of ``(Document, similarity_score)`` tuples with scores in (0, 1].
+        """
         if self._store is None:
             self.build()
         k = k or config.RETRIEVAL_TOP_K
@@ -65,6 +85,7 @@ class VectorStore:
 
     @property
     def chunk_count(self) -> int:
+        """Number of vectors currently indexed (0 if not built)."""
         if self._store is None:
             return 0
         return self._store.index.ntotal

@@ -51,7 +51,15 @@ class HashingEmbeddings(Embeddings):
 
 
 def get_embeddings() -> tuple[Embeddings, str]:
-    """Return (embeddings, backend_name_actually_used)."""
+    """Resolve the active embedding backend with automatic fallback.
+
+    Tries HuggingFace sentence-transformers when configured; falls back to hash
+    embeddings if the model cannot be loaded.
+
+    Returns:
+        Tuple of ``(embeddings_instance, backend_name)`` where ``backend_name``
+        is ``"huggingface"`` or ``"hash"``.
+    """
     if config.EMBEDDING_BACKEND == "huggingface":
         try:
             from langchain_huggingface import HuggingFaceEmbeddings
