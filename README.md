@@ -1,4 +1,4 @@
-# AI Presales Agent — SOW Generator
+# AI Presales Agent 
 
 You give it deal data (structured or messy), it pulls relevant context from a knowledge base via RAG, runs it through a LangGraph workflow, and spits out a Statement of Work.
 
