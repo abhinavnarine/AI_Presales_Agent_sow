@@ -1,11 +1,10 @@
-"""LLM client.
+"""LLM client — thin wrapper around two providers.
 
-Two providers behind one interface:
-  * anthropic - real generation via Claude (langchain-anthropic)
-  * mock      - deterministic, offline generation so the full pipeline runs
-                without any API key (useful for testing and for the grader)
+  anthropic - real generation via Claude (needs ANTHROPIC_API_KEY)
+  mock      - offline, deterministic output so the full pipeline runs without
+              any API key (useful for local dev and testing)
 
-Both return a JSON string with the five SOW sections. The node layer parses it.
+Both return a JSON string with the five SOW sections; the node layer parses it.
 """
 from __future__ import annotations
 
@@ -31,7 +30,6 @@ class LLMClient:
     """Unified LLM interface supporting Anthropic and offline mock generation."""
 
     def __init__(self) -> None:
-        """Select provider from config and initialize the Anthropic client if needed."""
         self.provider = config.effective_llm_provider()
         logger.info("LLM provider: %s", self.provider)
         self._client = None
@@ -46,15 +44,7 @@ class LLMClient:
             )
 
     def complete(self, system: str, user: str) -> str:
-        """Generate a completion from system and user prompts.
-
-        Args:
-            system: System instructions for the model.
-            user: User message (deal JSON and optional RAG context).
-
-        Returns:
-            Raw model text (JSON string with five SOW section keys).
-        """
+        """Call the model and return the raw text response."""
         if self.provider == "anthropic":
             logger.debug("LLM complete via Anthropic (%s)", config.ANTHROPIC_MODEL)
             resp = self._client.invoke(
@@ -66,34 +56,19 @@ class LLMClient:
 
 
 # --------------------------------------------------------------------------
-# Mock generation
+# Mock generation — no API key needed
 # --------------------------------------------------------------------------
 def _extract_tag(text: str, tag: str) -> str:
-    """Extract the inner text of an XML-style tag from a prompt.
-
-    Args:
-        text: Full prompt or message body.
-        tag: Tag name without angle brackets (e.g. ``"deal"``).
-
-    Returns:
-        Stripped inner content, or empty string if the tag is absent.
-    """
+    """Pull the inner text of an XML-style tag out of a prompt string."""
     m = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL)
     return m.group(1).strip() if m else ""
 
 
 def _mock_complete(user: str) -> str:
-    """Produce a believable structured SOW deterministically (offline).
+    """Build a believable SOW response without hitting any API.
 
-    When a ``<context>`` block is present (RAG on), output weaves in phrases
-    from the knowledge base; when absent, output stays generic.
-
-    Args:
-        user: User prompt containing ``<deal>`` and optional ``<context>`` tags.
-
-    Returns:
-        JSON string with keys: project_overview, scope_of_work, deliverables,
-        timeline, assumptions.
+    When a <context> block is present (RAG on), we weave in a short grounded
+    note from the knowledge base. Without it, output stays generic.
     """
     deal_raw = _extract_tag(user, "deal")
     context = _extract_tag(user, "context")
@@ -192,15 +167,7 @@ def _mock_complete(user: str) -> str:
 
 
 def _context_sentence(context: str, needle: str) -> str:
-    """Find the first sentence in context that mentions a keyword.
-
-    Args:
-        context: Retrieved knowledge-base text.
-        needle: Substring to search for (case-insensitive).
-
-    Returns:
-        A short grounded note prefixed with ``"Grounded note: "``, or empty.
-    """
+    """Find the first sentence in the retrieved context that mentions a keyword."""
     for sentence in re.split(r"(?<=[.])\s+", context):
         if needle.lower() in sentence.lower():
             s = sentence.strip().replace("\n", " ")
