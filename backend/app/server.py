@@ -1,14 +1,34 @@
 """FastAPI app exposing the presales agent to the Vue frontend."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config
 from app.agent.graph import get_agent
+from app.logging_config import get_logger, setup_logging
 from app.models import DealInput, GenerateRequest, GenerateResponse
 
-app = FastAPI(title="AI Presales Agent", version="1.0.0")
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize logging and warm the agent singleton on startup."""
+    setup_logging()
+    logger.info(
+        "API ready (llm=%s, embedding=%s)",
+        config.effective_llm_provider(),
+        config.EMBEDDING_BACKEND,
+    )
+    get_agent()  # load vector store / models once at startup
+    yield
+    logger.info("API shutdown")
+
+
+app = FastAPI(title="AI Presales Agent", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,12 +52,18 @@ def health() -> dict:
 @app.post("/api/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest) -> GenerateResponse:
     """Generate a single SOW (RAG on or off, controlled by req.use_rag)."""
+    logger.info(
+        "POST /api/generate client=%s use_rag=%s",
+        req.deal.client_name,
+        req.use_rag,
+    )
     return get_agent().run(req.deal, use_rag=req.use_rag)
 
 
 @app.post("/api/compare")
 def compare(deal: DealInput) -> dict:
     """Run the pipeline twice and return WITH-RAG and WITHOUT-RAG side by side."""
+    logger.info("POST /api/compare client=%s", deal.client_name)
     agent = get_agent()
     with_rag = agent.run(deal, use_rag=True)
     without_rag = agent.run(deal, use_rag=False)

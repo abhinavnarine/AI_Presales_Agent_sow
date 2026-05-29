@@ -13,6 +13,9 @@ from typing import List
 from app import config
 from app.models import NormalizedDeal, RetrievedSource
 from app.rag.vector_store import VectorStore
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _build_queries(deal: NormalizedDeal) -> List[str]:
@@ -37,8 +40,10 @@ class KnowledgeRetriever:
 
     def retrieve(self, deal: NormalizedDeal, top_k: int | None = None) -> List[RetrievedSource]:
         top_k = top_k or config.RETRIEVAL_TOP_K
+        queries = _build_queries(deal)
+        logger.debug("retriever: %d queries for %s", len(queries), deal.project_type)
         seen: dict[str, RetrievedSource] = {}
-        for query in _build_queries(deal):
+        for query in queries:
             for doc, score in self.store.search(query, k=top_k):
                 key = doc.page_content[:80]
                 if key in seen:
@@ -52,5 +57,7 @@ class KnowledgeRetriever:
                     snippet=doc.page_content,
                 )
         ranked = sorted(seen.values(), key=lambda s: s.score, reverse=True)
-        # cap total context to keep prompts tight
-        return ranked[: top_k * 2]
+        # Cap total context so LLM prompts stay within token limits.
+        result = ranked[: top_k * 2]
+        logger.info("retriever: returning %d unique chunks", len(result))
+        return result

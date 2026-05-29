@@ -24,14 +24,24 @@ from app.agent.nodes import (
     validate_refine,
 )
 from app.agent.state import AgentState
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class PresalesAgent:
     def __init__(self) -> None:
+        logger.info("Initializing presales agent (vector store, retriever, LLM)")
         self.vector_store = VectorStore().build()
         self.retriever = KnowledgeRetriever(self.vector_store)
         self.llm = LLMClient()
         self.graph = self._build_graph()
+        logger.info(
+            "Agent ready: llm=%s embedding=%s chunks=%d",
+            self.llm.provider,
+            self.vector_store.backend,
+            self.vector_store.chunk_count,
+        )
 
     def _build_graph(self):
         g = StateGraph(AgentState)
@@ -48,8 +58,19 @@ class PresalesAgent:
         return g.compile()
 
     def run(self, deal: DealInput, use_rag: bool = True) -> GenerateResponse:
+        logger.info(
+            "Running graph for client=%s project=%s use_rag=%s",
+            deal.client_name,
+            deal.project_type,
+            use_rag,
+        )
         final: AgentState = self.graph.invoke(
             {"raw_deal": deal, "use_rag": use_rag}
+        )
+        logger.info(
+            "Graph complete: sources=%d validation_notes=%d",
+            len(final.get("sources", [])),
+            len(final.get("validation_notes", [])),
         )
         return GenerateResponse(
             normalized_deal=final["normalized"],

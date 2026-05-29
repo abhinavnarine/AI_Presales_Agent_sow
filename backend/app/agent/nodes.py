@@ -17,6 +17,9 @@ from app.llm import LLMClient
 from app.models import DealInput, NormalizedDeal, RetrievedSource, SOW
 from app.rag.retriever import KnowledgeRetriever
 from app.agent.state import AgentState
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 VAGUE_OBJECTIVES = {"improve systems", "improve", "modernize", "better systems"}
 
@@ -42,7 +45,9 @@ DEFAULT_OBJECTIVES = {
 # Node 1: parse + normalize
 # --------------------------------------------------------------------------
 def parse_input(state: AgentState) -> AgentState:
+    """Normalize messy deal input; infer missing fields when needed."""
     deal: DealInput = state["raw_deal"]
+    logger.debug("parse_input: client=%s", deal.client_name)
     inferred: List[str] = []
     warnings: List[str] = []
 
@@ -103,6 +108,8 @@ def parse_input(state: AgentState) -> AgentState:
         inferred_fields=inferred,
         warnings=warnings,
     )
+    if inferred:
+        logger.info("parse_input inferred fields: %s", ", ".join(inferred))
     return {"normalized": normalized}
 
 
@@ -129,8 +136,10 @@ def _infer_budget(num_objectives: int) -> str:
 def make_retrieve_node(retriever: KnowledgeRetriever):
     def retrieve(state: AgentState) -> AgentState:
         if not state.get("use_rag", True):
+            logger.debug("retrieve: RAG disabled for this run")
             return {"sources": [], "context_text": ""}
         sources = retriever.retrieve(state["normalized"])
+        logger.info("retrieve: %d knowledge chunks", len(sources))
         context_text = "\n\n".join(
             f"[{s.source}]\n{s.snippet}" for s in sources
         )
@@ -180,8 +189,10 @@ def make_generate_node(llm: LLMClient):
             "and assumptions. Output the JSON object only."
         )
 
+        logger.debug("generate_sow: calling LLM (rag=%s)", bool(context_text))
         raw = llm.complete(SYSTEM_PROMPT, user)
         sow = _parse_sow(raw)
+        logger.info("generate_sow: produced SOW sections")
         return {"sow": sow}
 
     return generate_sow
@@ -222,4 +233,6 @@ def validate_refine(state: AgentState) -> AgentState:
         )
     if not state.get("use_rag", True):
         notes.append("Generated WITHOUT retrieval — not grounded in the knowledge base.")
+    if notes:
+        logger.warning("validate_refine: %s", "; ".join(notes))
     return {"validation_notes": notes}

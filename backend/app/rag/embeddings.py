@@ -16,6 +16,9 @@ from typing import List
 from langchain_core.embeddings import Embeddings
 
 from app import config
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class HashingEmbeddings(Embeddings):
@@ -56,10 +59,12 @@ def get_embeddings() -> tuple[Embeddings, str]:
             emb = HuggingFaceEmbeddings(model_name=config.HUGGINGFACE_EMBED_MODEL)
             # Probe once so a failed download surfaces here, not mid-pipeline.
             emb.embed_query("probe")
+            logger.info("Using HuggingFace embeddings: %s", config.HUGGINGFACE_EMBED_MODEL)
             return emb, "huggingface"
         except Exception as exc:  # noqa: BLE001
-            print(
-                f"[embeddings] HuggingFace backend unavailable ({exc!s:.120}); "
-                "falling back to deterministic hash embeddings."
+            logger.warning(
+                "HuggingFace embeddings unavailable (%s); falling back to hash",
+                str(exc)[:120],
             )
+    logger.info("Using hash embeddings (dim=%d)", config.HASH_EMBED_DIM)
     return HashingEmbeddings(), "hash"

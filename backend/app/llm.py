@@ -14,7 +14,9 @@ import re
 from typing import Optional
 
 from app import config
+from app.logging_config import get_logger
 
+logger = get_logger(__name__)
 
 SECTION_KEYS = [
     "project_overview",
@@ -28,6 +30,7 @@ SECTION_KEYS = [
 class LLMClient:
     def __init__(self) -> None:
         self.provider = config.effective_llm_provider()
+        logger.info("LLM provider: %s", self.provider)
         self._client = None
         if self.provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
@@ -41,10 +44,12 @@ class LLMClient:
 
     def complete(self, system: str, user: str) -> str:
         if self.provider == "anthropic":
+            logger.debug("LLM complete via Anthropic (%s)", config.ANTHROPIC_MODEL)
             resp = self._client.invoke(
                 [("system", system), ("human", user)]
             )
             return resp.content if isinstance(resp.content, str) else str(resp.content)
+        logger.debug("LLM complete via mock (offline)")
         return _mock_complete(user)
 
 

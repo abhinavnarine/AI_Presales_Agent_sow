@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- Logging ---------------------------------------------------------------
+# LOG_LEVEL: DEBUG | INFO | WARNING | ERROR (see app.logging_config)
+
 # --- Paths -----------------------------------------------------------------
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = Path(__file__).resolve().parent

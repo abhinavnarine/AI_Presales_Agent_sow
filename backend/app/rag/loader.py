@@ -15,6 +15,9 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app import config
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _nearest_heading(text: str, upto: int) -> str:
@@ -51,4 +54,9 @@ def load_and_chunk() -> List[Document]:
                     },
                 )
             )
+    logger.info(
+        "Loaded knowledge base: %d files -> %d chunks",
+        len(md_files),
+        len(docs),
+    )
     return docs
