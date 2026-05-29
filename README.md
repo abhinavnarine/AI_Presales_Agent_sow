@@ -1,42 +1,37 @@
-# AI Presales Agent — Grounded SOW Generator
+# AI Presales Agent — SOW Generator
 
-Takes structured (or messy) deal data → retrieves relevant knowledge via RAG →
-runs a multi-step LangGraph workflow → produces a structured **Statement of Work**.
+You give it deal data (structured or messy), it pulls relevant context from a knowledge base via RAG, runs it through a LangGraph workflow, and spits out a Statement of Work.
 
-Built with **Python + LangGraph + LangChain + FAISS** on the backend and **Vue 3
-(Vite)** on the frontend. It runs end-to-end **with no API key** (deterministic
-mock LLM + offline embeddings fallback) and uses **Claude** for real generation
-when a key is provided.
+Backend is Python + LangGraph + LangChain + FAISS. Frontend is Vue 3 (Vite). It runs fully offline with no API key — uses a deterministic mock LLM and hash embeddings as fallback — and switches to Claude when you provide one.
 
 ---
 
 ## Quick start
 
-### 1. Backend
+### Backend
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate      # optional
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env                                   # optional; add ANTHROPIC_API_KEY for real Claude output
-python run.py                                          # serves http://localhost:8000
+cp .env.example .env        # add ANTHROPIC_API_KEY if you want real output
+python run.py               # http://localhost:8000
 ```
 
-Run it offline / without any key (fully functional, mock LLM + hash embeddings):
+If you just want to poke around without any API key:
 ```bash
 LLM_PROVIDER=mock EMBEDDING_BACKEND=hash python run.py
 ```
 
-### 2. Frontend
+### Frontend
 ```bash
 cd frontend
 npm install
-npm run dev                                            # http://localhost:5173 (proxies /api to :8000)
+npm run dev                 # http://localhost:5173, proxies /api → :8000
 ```
 
-Open http://localhost:5173, load a sample (complete or messy), and click
-**Generate SOW** or **Compare WITH vs WITHOUT RAG**.
+Load a sample deal, click **Generate SOW** or **Compare WITH vs WITHOUT RAG**.
 
-### 3. CLI demo (no frontend needed)
+### CLI (no frontend)
 ```bash
 cd backend
 python ../scripts/demo.py
@@ -44,19 +39,20 @@ python ../scripts/demo.py
 
 ---
 
-## How it runs anywhere (graceful degradation)
+## Running without a key
 
-| Concern | Primary (recommended) | Automatic fallback |
+The system always runs — no key, no model download required. Here's how it degrades:
+
+| | Primary | Fallback |
 |---|---|---|
-| **LLM** | Claude via `langchain-anthropic` (needs `ANTHROPIC_API_KEY`) | Deterministic `mock` generator — no key required |
-| **Embeddings** | `sentence-transformers/all-MiniLM-L6-v2` (real neural vectors) | Deterministic **hash embeddings** — no model download |
+| LLM | Claude (`ANTHROPIC_API_KEY`) | Deterministic mock — no key |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` | Hash embeddings — no download |
 
-The fallbacks mean the system is always runnable for evaluation; the RAG plumbing
-(chunk → embed → FAISS → retrieve → ground) is identical in both modes.
+The RAG pipeline (chunk → embed → FAISS → retrieve → inject) is identical in both modes. The fallback makes it easy to evaluate the plumbing without standing up any external services.
 
 ---
 
-## Architecture (end-to-end)
+## Architecture
 
 ```
 ┌──────────────┐     POST /api/generate            ┌──────────────────────────────┐
@@ -65,26 +61,26 @@ The fallbacks mean the system is always runnable for evaluation; the RAG plumbin
 │  SowOutput   │ ◄──── JSON: sow + sources ─────────────────────  │
 │  SourcesPanel│                                                   ▼
 └──────────────┘                              ┌───────────────────────────────────┐
-                                              │  LangGraph workflow (app/agent)     │
-                                              │                                     │
-   START ─► parse_input ─► retrieve ─► generate_sow ─► validate_refine ─► END       │
-                │              │             │               │                      │
-        normalize+infer   RAG (FAISS)   LLM (Claude/mock)  QA checks                │
-                                              └────────────┬───────────────────────┘
+                                              │  LangGraph workflow (app/agent)   │
+                                              │                                   │
+   START ─► parse_input ─► retrieve ─► generate_sow ─► validate_refine ─► END    │
+                │              │             │               │                    │
+        normalize+infer   RAG (FAISS)   LLM (Claude/mock)  QA checks             │
+                                              └────────────┬──────────────────────┘
                                                            ▼
-   Knowledge base (markdown)  ──►  load+chunk  ──►  embeddings  ──►  FAISS vector store
-   app/knowledge_base/*.md         app/rag/loader   app/rag/embeddings   app/rag/vector_store
+   Knowledge base (markdown)  ──►  load+chunk  ──►  embeddings  ──►  FAISS
+   app/knowledge_base/*.md         app/rag/loader   app/rag/embeddings
 ```
 
-The backend is intentionally **modular, not one script**:
-
+Backend layout:
 ```
 backend/app/
 ├── server.py              FastAPI endpoints (/generate, /compare, /health, /sample-deals)
-├── config.py              all tunables (chunk size, top-k, model, backends)
+├── config.py              tunables (chunk size, top-k, model, backends)
 ├── models.py              Pydantic schemas (DealInput, NormalizedDeal, SOW, sources)
-├── llm.py                 LLM client: Claude provider + offline mock provider
-├── knowledge_base/        the RAG corpus (SOW templates, cloud migration, HIPAA, delivery)
+├── llm.py                 Claude + offline mock provider
+├── logging_config.py      structured logging setup
+├── knowledge_base/        RAG corpus (SOW templates, cloud migration, HIPAA, delivery)
 ├── rag/
 │   ├── embeddings.py      pluggable embeddings (HF neural / hash fallback)
 │   ├── loader.py          markdown-aware chunking with section metadata
@@ -92,133 +88,63 @@ backend/app/
 │   └── retriever.py       multi-query retrieval + de-dup + ranking
 └── agent/
     ├── state.py           LangGraph shared state (TypedDict)
-    ├── nodes.py           the 4 workflow nodes (each independently testable)
-    └── graph.py           LangGraph wiring + dependency injection + run()
+    ├── nodes.py           the 4 workflow nodes
+    └── graph.py           graph wiring + dependency injection + run()
 ```
 
 ---
 
-## RAG Implementation
+## RAG
 
-**Knowledge base.** Four curated markdown documents act as the corpus: SOW templates
-and section guidance, cloud-migration best practices (the 7 Rs, waves, landing zone),
-HIPAA/compliance guidelines, and delivery frameworks/estimation. This is real domain
-knowledge the LLM should *not* be left to invent.
+The knowledge base is four markdown files: SOW templates and section guidance, cloud-migration best practices (7 Rs, waves, landing zone), HIPAA/compliance guidelines, and delivery/estimation frameworks. Real domain content the LLM shouldn't be left to hallucinate.
 
-**Chunking strategy.** `RecursiveCharacterTextSplitter` with markdown-aware separators
-(`\n## `, `\n### `, paragraph, sentence, word), `chunk_size=900`, `chunk_overlap=150`.
-Heading-first splitting keeps each chunk topically coherent; the overlap preserves
-context across boundaries. Each chunk stores `source` (filename) and `section`
-(nearest heading) metadata so retrieved context is traceable in the UI.
+Chunking uses `RecursiveCharacterTextSplitter` with markdown-aware separators (`\n## `, `\n### `, paragraph, sentence, word) at `chunk_size=900`, `chunk_overlap=150`. Each chunk carries `source` and `section` metadata so the UI can show where retrieved content came from.
 
-**Embeddings + vector store.** Chunks are embedded (MiniLM by default) and indexed in
-**FAISS**. The index is persisted to disk and tagged by embedding backend, so it
-rebuilds automatically if the backend changes.
+Retrieval is multi-query: instead of one generic search, the retriever builds several focused queries from the normalized deal — one per objective, plus project type, estimation, and a HIPAA query when the deal signals healthcare or compliance. Results are de-duped across queries (keeping the best score per chunk) and capped. On a small corpus this meaningfully improves recall over a single query.
 
-**Retrieval method.** *Multi-query, top-k with de-duplication.* Instead of one generic
-query, `retriever.py` derives several focused queries from the **normalized** deal —
-one per objective, plus project-type, estimation, and (conditionally) a HIPAA query
-when the industry/objectives signal healthcare or compliance. Results across queries
-are de-duplicated (keeping the best score per chunk), ranked, and capped. On a small
-corpus this materially improves recall versus a single query.
+FAISS L2 distance gets converted to `1/(1+distance)` so scores are comparable across embedding backends and display cleanly.
 
-**Scoring.** FAISS L2 distance is converted to a bounded similarity `1/(1+distance)`
-so scores are comparable across embedding backends and display cleanly in the UI.
-
-**How retrieval improves output.** The retrieved chunks are injected into the
-generation prompt inside a `<context>` block; the system prompt instructs the model to
-ground scope, deliverables, timeline, and assumptions in that context. The UI’s
-**Compare** mode runs the pipeline twice (RAG on / off) so the difference is visible:
-without RAG the SOW is generic; with RAG it pulls in concrete, source-backed content
-(7 Rs dispositions, wave planning, HIPAA BAA/encryption/audit safeguards, budget-band
-estimation, "client name Unknown → use a neutral placeholder", etc.). Even in offline
-mock mode the grounded output weaves in real phrases from the retrieved sources, so the
-RAG effect is demonstrable without a key.
+Retrieved chunks are injected into the generation prompt in a `<context>` block. The system prompt tells the model to ground scope, deliverables, timeline, and assumptions in that content. The **Compare** mode in the UI runs the pipeline twice so you can see the difference: without RAG the SOW is generic; with RAG it pulls in concrete content from the knowledge base — 7 Rs dispositions, HIPAA BAA/encryption/audit safeguards, budget estimation, etc.
 
 ---
 
-## Agent Workflow
+## Agent workflow
 
-A **LangGraph** `StateGraph` with four single-responsibility nodes — explicitly *not*
-one big prompt:
+Four nodes in a LangGraph `StateGraph`, each with one job:
 
-1. **parse_input** — cleans messy input and infers defaults. Maps
-   `client_name: "Unknown"` → `"the Client"`; infers `industry` from objective keywords;
-   defaults `project_type` to `Modernization`; expands vague objectives
-   (`"Improve systems"`) into concrete, defensible ones; infers a `timeline` from
-   project type and a `budget_range` from objective count. Every inference is recorded
-   in `inferred_fields` + `warnings` for transparency. *(No LLM, no retrieval.)*
-2. **retrieve** — RAG step; builds queries from the normalized deal and gathers ranked
-   grounding context. Skipped when `use_rag=False`. *(No LLM.)*
-3. **generate_sow** — builds a grounded prompt (`<deal>` + `<context>`) and calls the
-   LLM to emit a strict JSON SOW, which is parsed into the `SOW` schema.
-4. **validate_refine** — deterministic QA: flags thin sections, surfaces reliance on
-   inferred fields, and warns when output was generated without grounding.
+1. **parse_input** — cleans input, infers defaults. `client_name: "Unknown"` → `"the Client"`, infers industry from objective keywords, expands vague objectives into concrete ones, infers timeline and budget from project type and objective count. Every inference is logged in `inferred_fields` + `warnings`. No LLM, no retrieval.
+2. **retrieve** — builds queries from the normalized deal, runs RAG, returns ranked grounding context. Skipped when `use_rag=False`.
+3. **generate_sow** — builds a grounded prompt (`<deal>` + `<context>`) and calls the LLM for a JSON SOW, parsed into the `SOW` schema.
+4. **validate_refine** — deterministic QA: flags thin sections, surfaces reliance on inferred fields, warns if the output was generated without grounding.
 
-**Why this structure.** Separating parse / retrieve / generate / validate makes each
-step independently testable and swappable, keeps prompts small and grounded, and gives
-a clean place to extend (e.g. add a `human_review` node, a `pricing` node, or a
-conditional refine-loop edge) without touching the others. Dependencies (vector store,
-retriever, LLM) are injected into the nodes by the graph builder, so the compiled graph
-is reused across requests.
+Keeping parse / retrieve / generate / validate separate makes each step independently testable, keeps prompts small, and gives a clean extension point — adding a `human_review` node, a `pricing` node, or a refine-loop edge means touching one node, not rewriting a monolith.
 
-**How it maps to a client’s LangGraph/LangChain platform.** The graph already *is*
-LangGraph; nodes are plain callables over a typed state, retrieval uses LangChain’s
-FAISS + splitters + `Document` abstractions, and generation uses `langchain-anthropic`.
-Dropping this into a larger orchestration layer means registering these nodes in the
-existing graph, pointing the retriever at the shared vector store, and swapping the
-in-process LLM client for the platform’s model gateway.
+Dependencies (vector store, retriever, LLM client) are injected by the graph builder, so the compiled graph is reused across requests without reloading anything.
 
 ---
 
-## Validation: WITH vs WITHOUT RAG
+## Tradeoffs and known limitations
 
-- API: `POST /api/compare` returns both results.
-- UI: **Compare WITH vs WITHOUT RAG** renders them side by side with the source panel.
-- CLI: `python ../scripts/demo.py` prints the Scope section for both.
+**What I simplified** (built in ~24h):
+- Knowledge base is hand-written markdown, not an ingestion pipeline
+- FAISS runs in-process, persisted to local disk
+- No auth, rate limiting, or streaming
+- The refine step is deterministic QA, not an LLM self-critique loop
+- Mock LLM + hash embeddings are for offline runnability, not production quality
 
-The WITHOUT-RAG SOW is plausible but generic and ungrounded; the WITH-RAG SOW cites and
-incorporates specific best-practice and compliance content from the knowledge base, and
-`validate_refine` explicitly flags ungrounded output.
+**What would need to change at real scale:**
 
----
-
-## Tradeoffs
-
-**What I simplified (24h timebox):**
-- Knowledge base is four hand-written markdown files, not an ingestion pipeline.
-- FAISS runs in-process and persists to local disk (single node).
-- No auth, rate limiting, caching layer, or streaming responses.
-- The refine step is a deterministic QA pass, not an LLM self-critique loop.
-- Mock LLM + hash embeddings exist for offline runnability, not production quality.
-
-**What would break at scale (thousands of deals) — and the fix:**
-- **In-process FAISS** won’t scale or share across replicas → move to a managed/dedicated
-  vector DB (pgvector, Pinecone, Milvus, OpenSearch) with metadata filtering and ANN
-  tuning; separate the index service from the API.
-- **Synchronous request/response** blocks under load → make generation a queued async job
-  (Celery/SQS) with a status endpoint and streaming.
-- **Per-request graph + embedding-model load** → warm singletons (already cached here)
-  plus a dedicated embeddings/model-serving service; batch embedding for ingestion.
-- **No caching** → cache retrieval and (normalized-deal-keyed) generations; dedupe
-  identical deals.
-- **Cost/latency of the LLM** → cache, route simple deals to a smaller model, and reserve
-  the large model for complex ones; add token budgets.
-- **Knowledge freshness & quality** → automated ingestion + re-embedding pipeline,
-  versioned indexes, and an eval harness (e.g. RAGAS: faithfulness, context precision/recall)
-  in CI to catch retrieval/grounding regressions before deploy.
-- **Observability/governance** → tracing (LangSmith/OpenTelemetry), per-stage metrics,
-  PII handling for real client data, and human-in-the-loop review for high-value SOWs.
+In-process FAISS won't scale across replicas — that needs a managed vector DB (pgvector, Pinecone, Milvus) with a separate index service. Synchronous request/response blocks under load — generation should be a queued async job with a status endpoint. Per-request graph compilation and embedding model load need to be warm singletons. There's no caching anywhere — retrieval results and normalized-deal-keyed generations both want caching. LLM cost needs routing (small model for simple deals, large for complex) with token budgets. And knowledge freshness needs an automated ingestion + re-embedding pipeline, versioned indexes, and an eval harness (RAGAS or similar) in CI to catch retrieval regressions before deploy.
 
 ---
 
-## API reference
+## API
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET  | `/api/health` | – | provider, embedding backend, chunk count |
+| GET  | `/api/health` | — | provider, embedding backend, chunk count |
 | POST | `/api/generate` | `{ deal, use_rag }` | normalized deal, SOW, sources |
 | POST | `/api/compare` | `deal` | `{ with_rag, without_rag }` |
-| GET  | `/api/sample-deals` | – | the complete + messy sample inputs |
+| GET  | `/api/sample-deals` | — | complete + messy sample inputs |
 
-`deal` fields are all optional: `client_name, industry, project_type, objectives[], timeline, budget_range`.
+All `deal` fields are optional: `client_name`, `industry`, `project_type`, `objectives[]`, `timeline`, `budget_range`.
